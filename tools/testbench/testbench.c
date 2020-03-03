@@ -18,10 +18,12 @@
 
 /* shared library look up table */
 struct shared_lib_table lib_table[NUM_WIDGETS_SUPPORTED] = {
-	{"file", "", SND_SOC_TPLG_DAPM_AIF_IN, 0, NULL},
-	{"vol", "libsof_volume.so", SND_SOC_TPLG_DAPM_PGA, 0, NULL},
-	{"src", "libsof_src.so", SND_SOC_TPLG_DAPM_SRC, 0, NULL},
-	{"asrc", "libsof_asrc.so", SND_SOC_TPLG_DAPM_ASRC, 0, NULL},
+	{"file", "", SOF_COMP_HOST, 0, NULL},
+	{"vol", "libsof_volume.so", SOF_COMP_VOLUME, 0, NULL},
+	{"src", "libsof_src.so", SOF_COMP_SRC, 0, NULL},
+	{"asrc", "libsof_asrc.so", SOF_COMP_ASRC, 0, NULL},
+	{"eqfir", "libsof_eqfir.so", SOF_COMP_EQ_FIR, 0, NULL},
+	{"eqiir", "libsof_eqiir.so", SOF_COMP_EQ_IIR, 0, NULL},
 };
 
 /* main firmware context */
