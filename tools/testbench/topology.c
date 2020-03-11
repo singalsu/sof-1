@@ -7,6 +7,7 @@
 
 /* Topology loader to set up components and pipeline */
 
+#include <math.h>
 #include <sof/drivers/ipc.h>
 #include <sof/common.h>
 #include <stdio.h>
@@ -132,7 +133,6 @@ int load_buffer(void *dev, int comp_id, int pipeline_id,
 {
 	struct sof *sof = (struct sof *)dev;
 	struct sof_ipc_buffer buffer;
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret;
 
@@ -140,12 +140,10 @@ int load_buffer(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
-
-	tplg_free_controls(&controls);
 
 	/* create buffer component */
 	if (ipc_buffer_new(sof->ipc, &buffer) < 0) {
@@ -274,7 +272,6 @@ static int load_fileread(void *dev, int comp_id, int pipeline_id,
 {
 	struct sof *sof = (struct sof *)dev;
 	struct sof_ipc_comp_file fileread;
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret;
 
@@ -284,12 +281,10 @@ static int load_fileread(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
-
-	tplg_free_controls(&controls);
 
 	/* configure fileread */
 	fileread.fn = strdup(tp->input_file);
@@ -324,7 +319,6 @@ static int load_filewrite(struct sof *sof, int comp_id, int pipeline_id,
 			  struct testbench_prm *tp)
 {
 	struct sof_ipc_comp_file filewrite;
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret;
 
@@ -332,12 +326,10 @@ static int load_filewrite(struct sof *sof, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
-
-	tplg_free_controls(&controls);
 
 	/* configure filewrite */
 	filewrite.fn = strdup(tp->output_file);
@@ -390,8 +382,16 @@ int load_pga(void *dev, int comp_id, int pipeline_id,
 	     struct snd_soc_tplg_dapm_widget *widget)
 {
 	struct sof *sof = (struct sof *)dev;
-	struct sof_ipc_comp_volume volume;
-	struct sof_controls controls = {0};
+	struct sof_ipc_comp_volume volume = {};
+	struct snd_soc_tplg_ctl_hdr *ctl = NULL;
+	struct snd_soc_tplg_mixer_control *mixer_ctl;
+	char *priv_data = NULL;
+	int32_t vol_min = 0;
+	int32_t vol_step = 0;
+	int32_t vol_maxs = 0;
+	float vol_min_db;
+	float vol_max_db;
+	int channels = 0;
 	int size = widget->priv.size;
 	int ret = 0;
 
@@ -399,12 +399,36 @@ int load_pga(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
-		fprintf(stderr, "error: loading controls\n");
+	/* Only one control is supported*/
+	if (widget->num_kcontrols > 1) {
+		fprintf(stderr, "error: more than one kcontrol defined\n");
 		return -EINVAL;
 	}
 
-	tplg_free_controls(&controls);
+	/* Get control into ctl and priv_data */
+	if (widget->num_kcontrols) {
+		ret = tplg_load_one_control(&ctl, &priv_data, file);
+		if (ret < 0) {
+			fprintf(stderr, "error: failed control load\n");
+			return ret;
+		}
+
+		/* Get volume scale */
+		mixer_ctl = (struct snd_soc_tplg_mixer_control *)ctl;
+		vol_min = (int32_t)mixer_ctl->hdr.tlv.scale.min;
+		vol_step = mixer_ctl->hdr.tlv.scale.step;
+		vol_maxs = mixer_ctl->max;
+		channels = mixer_ctl->num_channels;
+	}
+
+	vol_min_db = 0.01 * vol_min;
+	vol_max_db = 0.01 * (vol_maxs * vol_step) + vol_min_db;
+	volume.min_value = round(pow(10, vol_min_db / 20.0) * 65535);
+	volume.max_value = round(pow(10, vol_max_db / 20.0) * 65536);
+	volume.channels = channels;
+
+	free(ctl);
+	free(priv_data);
 
 	/* load volume component */
 	register_comp(volume.comp.type);
@@ -422,7 +446,6 @@ int load_pipeline(void *dev, int comp_id, int pipeline_id,
 {
 	struct sof *sof = (struct sof *)dev;
 	struct sof_ipc_pipe_new pipeline;
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret;
 
@@ -430,12 +453,11 @@ int load_pipeline(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
 
-	tplg_free_controls(&controls);
 	pipeline.sched_id = sched_id;
 
 	/* Create pipeline */
@@ -455,7 +477,6 @@ int load_src(void *dev, int comp_id, int pipeline_id,
 	struct testbench_prm *tp = (struct testbench_prm *)params;
 	struct sof *sof = (struct sof *)dev;
 	struct sof_ipc_comp_src src = {0};
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret = 0;
 
@@ -463,12 +484,10 @@ int load_src(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
-
-	tplg_free_controls(&controls);
 
 	/* set testbench input and output sample rate from topology */
 	if (!tp->fs_out) {
@@ -500,7 +519,6 @@ int load_asrc(void *dev, int comp_id, int pipeline_id,
 	struct testbench_prm *tp = (struct testbench_prm *)params;
 	struct sof *sof = (struct sof *)dev;
 	struct sof_ipc_comp_asrc asrc = {0};
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret = 0;
 
@@ -508,12 +526,10 @@ int load_asrc(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
-
-	tplg_free_controls(&controls);
 
 	/* set testbench input and output sample rate from topology */
 	if (!tp->fs_out) {
@@ -537,6 +553,38 @@ int load_asrc(void *dev, int comp_id, int pipeline_id,
 	return ret;
 }
 
+static int process_append_data(struct sof_ipc_comp_process **process_ipc,
+			       struct sof_ipc_comp_process *process,
+			       struct snd_soc_tplg_ctl_hdr *ctl,
+			       char *priv_data)
+{
+	int ipc_size;
+	int size = 0;
+	struct snd_soc_tplg_bytes_control *bytes_ctl;
+
+	/* Size is process IPC plus private data minus ABI header */
+	ipc_size = sizeof(struct sof_ipc_comp_process);
+	if (ctl->ops.info == SND_SOC_TPLG_CTL_BYTES) {
+		bytes_ctl = (struct snd_soc_tplg_bytes_control *)ctl;
+		size = bytes_ctl->priv.size - sizeof(struct sof_abi_hdr);
+		ipc_size += size;
+	}
+	*process_ipc = malloc(ipc_size);
+	if (*process_ipc == NULL) {
+		fprintf(stderr, "error: Failed to allocate IPC\n");
+		return -ENOMEM;
+	}
+
+	/* Copy header */
+	memcpy(*process_ipc, process, sizeof(struct sof_ipc_comp_process));
+
+	/* Copy configuration data, need to strip ABI header*/
+	memcpy((char *)*process_ipc + sizeof(struct sof_ipc_comp_process),
+	       priv_data + sizeof(struct sof_abi_hdr), size);
+	(*process_ipc)->size = size;
+	return 0;
+}
+
 /* load process dapm widget */
 int load_process(void *dev, int comp_id, int pipeline_id,
 		 struct snd_soc_tplg_dapm_widget *widget)
@@ -544,8 +592,8 @@ int load_process(void *dev, int comp_id, int pipeline_id,
 	struct sof *sof = (struct sof *)dev;
 	struct sof_ipc_comp_process process = {0};
 	struct sof_ipc_comp_process *process_ipc;
-	struct sof_controls controls = {0};
-	int ipc_size;
+	struct snd_soc_tplg_ctl_hdr *ctl = NULL;
+	char *priv_data = NULL;
 	int size;
 	int ret = 0;
 
@@ -559,39 +607,39 @@ int load_process(void *dev, int comp_id, int pipeline_id,
 		return -EINVAL;
 	}
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
-		fprintf(stderr, "error: loading controls\n");
+	/* Only one control is supported*/
+	if (widget->num_kcontrols > 1) {
+		fprintf(stderr, "error: more than one kcontrol defined\n");
 		return -EINVAL;
 	}
 
-	/* Size is process IPC plus private data minus ABI header */
-	ipc_size = sizeof(struct sof_ipc_comp_process);
-	size = 0;
-	if (controls.bytes_ctl) {
-		size = controls.bytes_ctl->priv.size -
-			sizeof(struct sof_abi_hdr);
-		ipc_size += size;
+	/* Get control into ctl and priv_data */
+	if (widget->num_kcontrols) {
+		ret = tplg_load_one_control(&ctl, &priv_data, file);
+		if (ret < 0) {
+			fprintf(stderr, "error: failed control load\n");
+			return ret;
+		}
 	}
-	process_ipc = malloc(ipc_size);
 
-	/* Copy header */
-	memcpy(process_ipc, &process, sizeof(struct sof_ipc_comp_process));
-
-	/* Copy configuration data, need to strip ABI header*/
-	memcpy((char *)process_ipc + sizeof(struct sof_ipc_comp_process),
-	       (char *)controls.priv_data + sizeof(struct sof_abi_hdr), size);
-	process_ipc->size = size;
-
-	tplg_free_controls(&controls);
+	/* Merge process and priv_data into process_ipc */
+	ret = process_append_data(&process_ipc, &process, ctl, priv_data);
+	free(ctl);
+	free(priv_data);
+	if (ret) {
+		fprintf(stderr, "error: private data append failed\n");
+		return ret;
+	}
 
 	/* load process component */
 	register_comp(process_ipc->comp.type);
 
 	/* Instantiate */
-	if (ipc_comp_new(sof->ipc, (struct sof_ipc_comp *)process_ipc) < 0) {
+	ret = ipc_comp_new(sof->ipc, (struct sof_ipc_comp *)process_ipc);
+	free(process_ipc);
+
+	if (ret < 0)
 		fprintf(stderr, "error: new process comp\n");
-		return -EINVAL;
-	}
 
 	return ret;
 }
@@ -601,7 +649,6 @@ int load_mixer(void *dev, int comp_id, int pipeline_id,
 	       struct snd_soc_tplg_dapm_widget *widget)
 {
 	struct sof_ipc_comp_mixer mixer = {0};
-	struct sof_controls controls = {0};
 	int size = widget->priv.size;
 	int ret = 0;
 
@@ -609,12 +656,11 @@ int load_mixer(void *dev, int comp_id, int pipeline_id,
 	if (ret < 0)
 		return ret;
 
-	if (tplg_load_controls(&controls, widget->num_kcontrols, file) < 0) {
+	if (tplg_load_controls(widget->num_kcontrols, file) < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		return -EINVAL;
 	}
 
-	tplg_free_controls(&controls);
 	return ret;
 }
 

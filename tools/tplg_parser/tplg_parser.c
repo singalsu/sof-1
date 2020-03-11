@@ -296,15 +296,27 @@ int tplg_load_pga(int comp_id, int pipeline_id, int size,
 		}
 		tplg_read_array(array, file);
 
-		/* parse volume tokens */
+		/* parse comp tokens */
 		ret = sof_parse_tokens(&volume->config, comp_tokens,
 				       ARRAY_SIZE(comp_tokens), array,
 				       array->size);
 		if (ret != 0) {
-			fprintf(stderr, "error: parse pga tokens %d\n", size);
+			fprintf(stderr, "error: parse pga comp tokens %d\n",
+				size);
 			free(array);
 			return -EINVAL;
 		}
+
+		/* parse volume tokens */
+		ret = sof_parse_tokens(volume, volume_tokens,
+				       ARRAY_SIZE(volume_tokens), array,
+				       array->size);
+		if (ret != 0) {
+			fprintf(stderr, "error: parse src tokens %d\n", size);
+			free(array);
+			return -EINVAL;
+		}
+
 		total_array_size += array->size;
 	}
 
@@ -381,22 +393,21 @@ int tplg_load_pipeline(int comp_id, int pipeline_id, int size,
 	return 0;
 }
 
-int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr *ctl_hdr,
-			  struct snd_soc_tplg_ctl_hdr *ctl,
-			  struct snd_soc_tplg_private *priv, FILE *file)
+int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr **ctl, char **priv_data,
+			  FILE *file)
 {
+	struct snd_soc_tplg_ctl_hdr *ctl_hdr;
 	struct snd_soc_tplg_mixer_control *mixer_ctl = NULL;
 	struct snd_soc_tplg_enum_control *enum_ctl = NULL;
 	struct snd_soc_tplg_bytes_control *bytes_ctl = NULL;
 	size_t rewind_size;
 	size_t read_size;
 	size_t hdr_size;
-	int j;
 	int ret = 0;
 
 	/* These are set if success */
-	ctl = NULL;
-	priv = NULL;
+	*ctl = NULL;
+	*priv_data = NULL;
 
 	/* allocate memory */
 	hdr_size = sizeof(struct snd_soc_tplg_ctl_hdr);
@@ -439,6 +450,7 @@ int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr *ctl_hdr,
 
 		/* skip mixer private data */
 		fseek(file, mixer_ctl->priv.size, SEEK_CUR);
+		*ctl = (struct snd_soc_tplg_ctl_hdr *)mixer_ctl;
 		break;
 
 	case SND_SOC_TPLG_CTL_ENUM:
@@ -450,8 +462,8 @@ int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr *ctl_hdr,
 		rewind_size = sizeof(struct snd_soc_tplg_ctl_hdr);
 		fseek(file, rewind_size * -1, SEEK_CUR);
 		read_size = sizeof(struct snd_soc_tplg_enum_control);
-		mixer_ctl = malloc(read_size);
-		if (!mixer_ctl) {
+		enum_ctl = malloc(read_size);
+		if (!enum_ctl) {
 			fprintf(stderr, "error: mem alloc\n");
 			ret = -EINVAL;
 			goto err;
@@ -464,7 +476,7 @@ int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr *ctl_hdr,
 
 		/* skip enum private data */
 		fseek(file, enum_ctl->priv.size, SEEK_CUR);
-		ctl = (struct snd_soc_tplg_ctl_hdr *)mixer_ctl;
+		*ctl = (struct snd_soc_tplg_ctl_hdr *)enum_ctl;
 		break;
 
 	case SND_SOC_TPLG_CTL_BYTES:
@@ -487,20 +499,20 @@ int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr *ctl_hdr,
 
 		/* Get private data */
 		read_size = bytes_ctl->priv.size;
-		priv = malloc(read_size);
-		if (!priv) {
+		*priv_data = malloc(read_size);
+		if (*priv_data == NULL) {
 			fprintf(stderr, "error: mem alloc\n");
 			ret = -EINVAL;
 			goto err;
 		}
 
-		ret = fread(priv, read_size, 1, file);
+		ret = fread(*priv_data, read_size, 1, file);
 		if (ret != 1) {
 			ret = -EINVAL;
 			goto err;
 		}
 
-		ctl = (struct snd_soc_tplg_ctl_hdr *)bytes_ctl;
+		*ctl = (struct snd_soc_tplg_ctl_hdr *)bytes_ctl;
 		break;
 
 	default:
@@ -508,37 +520,64 @@ int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr *ctl_hdr,
 		return -EINVAL;
 	}
 
+	free(ctl_hdr);
+	return 0;
+
 err:
 	/* free all data */
-	free(priv);
+	free(ctl_hdr);
 	free(mixer_ctl);
 	free(enum_ctl);
 	free(bytes_ctl);
-	free(ctl_hdr);
+	free(*priv_data);
 	return ret;
 }
 
 /* load dapm widget kcontrols
- * we don't use controls in the testbench or the fuzzer atm.
+ * we don't use controls in the fuzzer atm.
  * so just skip to the next dapm widget
  */
-int tplg_load_controls(struct sof_controls *ctls, int num_kcontrols,
-		       FILE *file)
+int tplg_load_controls(int num_kcontrols, FILE *file)
 {
-	if (num_kcontrols == 0)
-		return 0;
-
 	struct snd_soc_tplg_ctl_hdr *ctl_hdr;
-	size_t read_size;
-	size_t size;
-	int j;
-	int ret = 0;
+	struct snd_soc_tplg_mixer_control *mixer_ctl;
+	struct snd_soc_tplg_enum_control *enum_ctl;
+	struct snd_soc_tplg_bytes_control *bytes_ctl;
+	size_t read_size, size;
+	int j, ret = 0;
 
 	/* allocate memory */
 	size = sizeof(struct snd_soc_tplg_ctl_hdr);
 	ctl_hdr = (struct snd_soc_tplg_ctl_hdr *)malloc(size);
 	if (!ctl_hdr) {
 		fprintf(stderr, "error: mem alloc\n");
+		return -EINVAL;
+	}
+
+	size = sizeof(struct snd_soc_tplg_mixer_control);
+	mixer_ctl = (struct snd_soc_tplg_mixer_control *)malloc(size);
+	if (!mixer_ctl) {
+		fprintf(stderr, "error: mem alloc\n");
+		free(ctl_hdr);
+		return -EINVAL;
+	}
+
+	size = sizeof(struct snd_soc_tplg_enum_control);
+	enum_ctl = (struct snd_soc_tplg_enum_control *)malloc(size);
+	if (!enum_ctl) {
+		fprintf(stderr, "error: mem alloc\n");
+		free(ctl_hdr);
+		free(mixer_ctl);
+		return -EINVAL;
+	}
+
+	size = sizeof(struct snd_soc_tplg_bytes_control);
+	bytes_ctl = (struct snd_soc_tplg_bytes_control *)malloc(size);
+	if (!bytes_ctl) {
+		fprintf(stderr, "error: mem alloc\n");
+		free(ctl_hdr);
+		free(mixer_ctl);
+		free(enum_ctl);
 		return -EINVAL;
 	}
 
@@ -559,106 +598,66 @@ int tplg_load_controls(struct sof_controls *ctls, int num_kcontrols,
 		case SND_SOC_TPLG_CTL_VOLSW_XR_SX:
 		case SND_SOC_TPLG_CTL_RANGE:
 		case SND_SOC_TPLG_DAPM_CTL_VOLSW:
-			/* allocate */
-			size = sizeof(struct snd_soc_tplg_mixer_control);
-			ctls->mixer_ctl = (struct snd_soc_tplg_mixer_control *)
-				malloc(size);
-			if (!ctls->mixer_ctl) {
-				fprintf(stderr, "error: mem alloc\n");
-				free(ctl_hdr);
-				return -EINVAL;
-			}
 
 			/* load mixer type control */
 			read_size = sizeof(struct snd_soc_tplg_ctl_hdr);
 			fseek(file, read_size * -1, SEEK_CUR);
 			read_size = sizeof(struct snd_soc_tplg_mixer_control);
-			ret = fread(ctls->mixer_ctl, read_size, 1, file);
+			ret = fread(mixer_ctl, read_size, 1, file);
 			if (ret != 1) {
 				ret = -EINVAL;
 				goto err;
 			}
 
 			/* skip mixer private data */
-			fseek(file, ctls->mixer_ctl->priv.size, SEEK_CUR);
+			fseek(file, mixer_ctl->priv.size, SEEK_CUR);
 			break;
 		case SND_SOC_TPLG_CTL_ENUM:
 		case SND_SOC_TPLG_CTL_ENUM_VALUE:
 		case SND_SOC_TPLG_DAPM_CTL_ENUM_DOUBLE:
 		case SND_SOC_TPLG_DAPM_CTL_ENUM_VIRT:
 		case SND_SOC_TPLG_DAPM_CTL_ENUM_VALUE:
-			/* allocate */
-			size = sizeof(struct snd_soc_tplg_enum_control);
-			ctls->enum_ctl = (struct snd_soc_tplg_enum_control *)
-				malloc(size);
-			if (!ctls->enum_ctl) {
-				fprintf(stderr, "error: mem alloc\n");
-				free(ctl_hdr);
-				free(ctls->mixer_ctl);
-				return -EINVAL;
-			}
 
 			/* load enum type control */
 			read_size = sizeof(struct snd_soc_tplg_ctl_hdr);
 			fseek(file, read_size * -1, SEEK_CUR);
 			read_size = sizeof(struct snd_soc_tplg_enum_control);
-			ret = fread(ctls->enum_ctl, read_size, 1, file);
+			ret = fread(enum_ctl, read_size, 1, file);
 			if (ret != 1) {
 				ret = -EINVAL;
 				goto err;
 			}
 
 			/* skip enum private data */
-			fseek(file, ctls->enum_ctl->priv.size, SEEK_CUR);
+			fseek(file, enum_ctl->priv.size, SEEK_CUR);
 			break;
 		case SND_SOC_TPLG_CTL_BYTES:
-			/* allocate */
-			size = sizeof(struct snd_soc_tplg_bytes_control);
-			ctls->bytes_ctl = (struct snd_soc_tplg_bytes_control *)
-				calloc(1, size);
-			if (!ctls->bytes_ctl) {
-				fprintf(stderr, "error: mem alloc\n");
-				free(ctl_hdr);
-				free(ctls->mixer_ctl);
-				free(ctls->enum_ctl);
-				return -EINVAL;
-			}
 
 			/* load bytes type controls */
 			read_size = sizeof(struct snd_soc_tplg_ctl_hdr);
 			fseek(file, read_size * -1, SEEK_CUR);
 			read_size = sizeof(struct snd_soc_tplg_bytes_control);
-			ret = fread(ctls->bytes_ctl, read_size, 1, file);
+			ret = fread(bytes_ctl, read_size, 1, file);
 			if (ret != 1) {
 				ret = -EINVAL;
 				goto err;
 			}
 
-			/* Get private data */
-			read_size = ctls->bytes_ctl->priv.size;
-			ctls->priv_data = malloc(read_size);
-			ret = fread(ctls->priv_data, read_size, 1, file);
-			if (ret != 1) {
-				ret = -EINVAL;
-				goto err;
-			}
-
+			/* skip bytes private data */
+			fseek(file, bytes_ctl->priv.size, SEEK_CUR);
 			break;
 		default:
 			printf("info: control type not supported\n");
 			return -EINVAL;
 		}
 	}
-	free(ctl_hdr);
-	return 0;
 
 err:
 	/* free all data */
+	free(mixer_ctl);
+	free(enum_ctl);
+	free(bytes_ctl);
 	free(ctl_hdr);
-	free(ctls->mixer_ctl);
-	free(ctls->enum_ctl);
-	free(ctls->bytes_ctl);
-	free(ctls->priv_data);
 	return ret;
 }
 
@@ -995,10 +994,8 @@ int load_widget(void *dev, int dev_type, struct comp_info *temp_comp_list,
 		void *tp, int *sched_id, FILE *file)
 {
 	struct snd_soc_tplg_dapm_widget *widget;
-	struct sof_controls ctls = {0};
 	size_t read_size;
 	size_t size;
-	int n;
 	int ret = 0;
 
 	/* allocate memory for widget */
@@ -1111,29 +1108,16 @@ int load_widget(void *dev, int dev_type, struct comp_info *temp_comp_list,
 	default:
 		fseek(file, widget->priv.size, SEEK_CUR);
 		printf("info: Widget type not supported %d\n", widget->id);
-		ret = tplg_load_controls(&ctls, widget->num_kcontrols, file);
+		ret = tplg_load_controls(widget->num_kcontrols, file);
 		if (ret < 0) {
 			fprintf(stderr, "error: loading controls\n");
 			return ret;
 		}
-
-		tplg_free_controls(&ctls);
 		break;
 	}
 
 	free(widget);
 	return 0;
-}
-
-void tplg_free_controls(struct sof_controls *ctls)
-{
-	free(ctls->bytes_ctl);
-	free(ctls->enum_ctl);
-	free(ctls->mixer_ctl);
-	free(ctls->priv_data);
-
-	/* Set pointers to NULL */
-	memset(ctls, 0, sizeof(struct sof_controls));
 }
 
 /* parse vendor tokens in topology */

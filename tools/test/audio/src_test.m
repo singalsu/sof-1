@@ -58,7 +58,7 @@ t.nch = 2;             % Number of channels
 t.ch = 0;              % 1..nch. With value 0 test a randomly selected channel.
 t.bits_in = bits_in;   % Input word length
 t.bits_out = bits_out; % Output word length
-t.full_test = 1;       % 0 is quick check only, 1 is full set
+t.full_test = 0;       % 0 is quick check only, 1 is full set
 
 %% Show graphics or not. With visible plot windows Octave may freeze if too
 %  many windows are kept open. As workaround setting close windows to
@@ -66,9 +66,9 @@ t.full_test = 1;       % 0 is quick check only, 1 is full set
 %  visibility set to to 0 only console text is seen. The plots are
 %  exported into plots directory in png format and can be viewed from
 %  there.
-t.plot_close_windows = 1;  % Workaround for visible windows if Octave hangs
-t.plot_visible = 'off';    % Use off for batch tests and on for interactive
-t.files_delete = 1;        % Set to 0 to inspect the audio data files
+t.plot_close_windows = 0;  % Workaround for visible windows if Octave hangs
+t.plot_visible = 'on';     % Use off for batch tests and on for interactive
+t.files_delete = 0;        % Set to 0 to inspect the audio data files
 
 %% Init for test loop
 n_test = 7; % We have next seven test cases for SRC

@@ -8,7 +8,7 @@ if [ -z "$6" ]; then
     exit
 fi
 
-COMP=src
+COMP=volume
 DIRECTION=playback
 
 ./comp_run.sh $COMP $DIRECTION $1 $2 $3 $4 $5 $6

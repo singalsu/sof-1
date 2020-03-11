@@ -190,13 +190,6 @@ struct sof_dai_types {
 	enum sof_ipc_dai_type type;
 };
 
-struct sof_controls {
-	struct snd_soc_tplg_mixer_control *mixer_ctl;
-	struct snd_soc_tplg_enum_control *enum_ctl;
-	struct snd_soc_tplg_bytes_control *bytes_ctl;
-	char *priv_data;
-};
-
 int sof_parse_tokens(void *object,
 		     const struct sof_topology_token *tokens,
 		     int count, struct snd_soc_tplg_vendor_array *array,
@@ -228,9 +221,9 @@ int tplg_load_pga(int comp_id, int pipeline_id, int size,
 		  struct sof_ipc_comp_volume *volume, FILE *file);
 int tplg_load_pipeline(int comp_id, int pipeline_id, int size,
 		       struct sof_ipc_pipe_new *pipeline, FILE *file);
-int tplg_load_controls(struct sof_controls *ctls, int num_kcontrols,
-		       FILE *file);
-void tplg_free_controls(struct sof_controls *ctls);
+int tplg_load_one_control(struct snd_soc_tplg_ctl_hdr **ctl, char **priv,
+			  FILE *file);
+int tplg_load_controls(int num_kcontrols, FILE *file);
 int tplg_load_src(int comp_id, int pipeline_id, int size,
 		  struct sof_ipc_comp_src *src, FILE *file);
 int tplg_load_asrc(int comp_id, int pipeline_id, int size,

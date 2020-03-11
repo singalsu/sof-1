@@ -214,7 +214,7 @@ done
 
 
 # for processing algorithms
-ALG_MODE_TESTS=(asrc eq-fir eq-iir src)
+ALG_MODE_TESTS=(asrc eq-fir eq-iir src eq-volume)
 ALG_SIMPLE_TESTS=(test-capture test-playback)
 ALG_PROTOCOL_TESTS=(I2S)
 ALG_SSP_TESTS=(5)

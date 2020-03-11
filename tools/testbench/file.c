@@ -49,8 +49,9 @@ static int read_samples_32(struct comp_dev *dev,
 	struct file_comp_data *cd = comp_get_drvdata(dev);
 	int32_t *dest = (int32_t *)sink->w_ptr;
 	int32_t sample;
+	int i, n_wrap, n_min;
 	int n_samples = 0;
-	int i, n_wrap, n_min, ret;
+	int ret = 0;
 
 	while (n > 0) {
 		n_wrap = (int32_t *)sink->end_addr - dest;
