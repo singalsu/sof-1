@@ -1,0 +1,5 @@
+define(DEF_TDFB_PRIV, concat(`tdfb_priv_', PIPELINE_ID))
+define(DEF_TDFB_BYTES, concat(`tdfb_bytes_', PIPELINE_ID))
+define(DEF_TDFB_SWITCH, concat(`tdfb_switch_', PIPELINE_ID))
+define(DEF_TDFB_AZIMUTH, concat(`tdfb_azimuth_', PIPELINE_ID))
+define(DEF_TDFB_AZIMUTH_VALUES, concat(`tdfb_azimuth_values_', PIPELINE_ID))

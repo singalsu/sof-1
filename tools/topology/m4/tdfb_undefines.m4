@@ -1,0 +1,5 @@
+undefine(`DEF_TDFB_PRIV')
+undefine(`DEF_TDFB_BYTES')
+undefine(`DEF_TDFB_SWITCH')
+undefine(`DEF_TDFB_AZIMUTH')
+undefine(`DEF_TDFB_AZIMUTH_VALUES')
