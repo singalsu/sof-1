@@ -51,7 +51,7 @@ if INTEL_DMIC
 
 choice
 	prompt "Driver operation mode"
-	default INTEL_DMIC_NHLT
+	default INTEL_DMIC_TPLG_PARAMS
         help
           The driver can support two operation modes.
           - A HW registers dump blob that is passed via IPC
