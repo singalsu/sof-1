@@ -47,6 +47,8 @@ struct tdfb_comp_data {
 	struct sof_tdfb_config *config;	    /**< pointer to setup blob */
 	struct sof_tdfb_angle *filter_angles;
 	struct sof_tdfb_mic_location *mic_locations;
+	struct sof_ipc_ctrl_data *ctrl_data;
+	struct ipc_msg *msg;
 	int32_t in[TDFB_IN_BUF_LENGTH];	    /**< input samples buffer */
 	int32_t out[TDFB_IN_BUF_LENGTH];    /**< output samples mix buffer */
 	uint32_t az_value;		    /**< beam steer azimuth as in control enum */
@@ -57,6 +59,8 @@ struct tdfb_comp_data {
 	size_t fir_delay_size;              /**< allocated size */
 	int beam_on:1;			    /**< set true if beam is off */
 	int update:1;			    /**< set true if control enum has been received */
+	int count;
+	int direction;
 	void (*tdfb_func)(struct tdfb_comp_data *cd,
 			  const struct audio_stream *source,
 			  struct audio_stream *sink,

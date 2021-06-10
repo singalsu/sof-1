@@ -47,6 +47,32 @@ DECLARE_SOF_RT_UUID("tdfb", tdfb_uuid,  0xdd511749, 0xd9fa, 0x455c, 0xb3, 0xa7,
 
 DECLARE_TR_CTX(tdfb_tr, SOF_UUID(tdfb_uuid), LOG_LEVEL_INFO);
 
+/* IPC */
+
+static void tdfb_ctrl_request_init(struct comp_dev *dev)
+{
+	struct tdfb_comp_data *cd = comp_get_drvdata(dev);
+	int comp_id = dev_comp_id(dev);
+
+	assert(cd->ctrl_data);
+	cd->ctrl_data->rhdr.hdr.cmd = SOF_IPC_GLB_COMP_MSG | SOF_IPC_COMP_GET_VALUE | comp_id;
+	cd->ctrl_data->rhdr.hdr.size = sizeof(*cd->ctrl_data); /* No payload */
+	cd->msg = ipc_msg_init(cd->ctrl_data->rhdr.hdr.cmd, sizeof(*cd->ctrl_data));
+	cd->ctrl_data->comp_id = comp_id;
+	cd->ctrl_data->type = SOF_CTRL_TYPE_VALUE_COMP_GET;
+	cd->ctrl_data->cmd = SOF_CTRL_CMD_ENUM;
+	cd->ctrl_data->index = 0;
+	cd->ctrl_data->num_elems = 0; /* Empty message */
+	cd->ctrl_data->msg_index = 0; /* Empty message */
+}
+
+static void tdfb_request_ctrl_get(struct comp_dev *dev)
+{
+	struct tdfb_comp_data *cd = comp_get_drvdata(dev);
+
+	ipc_msg_send(cd->msg, cd->ctrl_data, false);
+}
+
 /*
  * The optimized FIR functions variants need to be updated into function
  * set_func.
@@ -404,6 +430,18 @@ static struct comp_dev *tdfb_new(const struct comp_driver *drv,
 	 * az_value is zero, beam off is false, and update is false.
 	 */
 
+	/* For fake angle update */
+	cd->ctrl_data = rzalloc(SOF_MEM_ZONE_RUNTIME, 0, SOF_MEM_CAPS_RAM, sizeof(*cd->ctrl_data));
+	if (!cd->ctrl_data) {
+		rfree(dev);
+		rfree(cd);
+		return NULL;
+	}
+
+	tdfb_ctrl_request_init(dev);
+	cd->count = 0;
+	cd->direction = 1;
+
 	/* Handler for configuration data */
 	cd->model_handler = comp_data_blob_handler_new(dev);
 	if (!cd->model_handler) {
@@ -435,9 +473,11 @@ static void tdfb_free(struct comp_dev *dev)
 
 	comp_info(dev, "tdfb_free()");
 
+	ipc_msg_free(cd->msg);
 	tdfb_free_delaylines(cd);
 	comp_data_blob_handler_free(cd->model_handler);
 
+	rfree(cd->ctrl_data);
 	rfree(cd);
 	rfree(dev);
 }
@@ -683,6 +723,21 @@ static int tdfb_copy(struct comp_dev *dev)
 	}
 
 	/* TODO: Update direction of arrival estimate */
+	cd->count++;
+	if (cd->count > 999) {
+		cd->count = 0;
+		cd->az_value += cd->direction;
+		if (cd->az_value > 11) {
+			cd->az_value = 10;
+			cd->direction = -1;
+		}
+		if (cd->az_value < 0) {
+			cd->az_value = 2;
+			cd->direction = 1;
+		}
+		tdfb_request_ctrl_get(dev);
+		comp_info(dev, "w00t");
+	}
 
 	return 0;
 }
