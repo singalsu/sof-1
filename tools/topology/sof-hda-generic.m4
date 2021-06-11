@@ -5,6 +5,7 @@
 ifdef(`DMICPROC', , `define(DMICPROC, eq-iir-volume)')
 ifdef(`DMIC16KPROC', , `define(DMIC16KPROC, eq-iir-volume)')
 ifdef(`HSPROC', , `define(HSPROC, volume)')
+ifdef(`HSMICPROC', , `define(HSMICPROC, volume)')
 
 # Include topology builder
 include(`utils.m4')
@@ -69,12 +70,21 @@ PIPELINE_PCM_ADD(PIPE_HEADSET_PLAYBACK,
 undefine(`PIPELINE_FILTER1')
 undefine(`PIPELINE_FILTER2')
 
+# If HSPROC_FILTERx is defined set PIPELINE_FILTERx
+ifdef(`HSMICPROC_FILTER1', `define(PIPELINE_FILTER1, HSMICPROC_FILTER1)', `undefine(`PIPELINE_FILTER1')')
+ifdef(`HSMICPROC_FILTER2', `define(PIPELINE_FILTER2, HSMICPROC_FILTER2)', `undefine(`PIPELINE_FILTER2')')
+
 # Low Latency capture pipeline 2 on PCM 0 using max 2 channels of s24le.
 # 1000us deadline on core 0 with priority 0
-PIPELINE_PCM_ADD(sof/pipe-highpass-capture.m4,
+PIPELINE_PCM_ADD(sof/pipe-`HSMICPROC'-capture.m4,
 	2, 0, 2, s24le,
 	1000, 0, 0,
 	48000, 48000, 48000)
+
+# Undefine PIPELINE_FILTERx to avoid to propagate elsewhere, other endpoints
+# with filters blobs will need similar handling as HSPROC_FILTERx.
+undefine(`PIPELINE_FILTER1')
+undefine(`PIPELINE_FILTER2')
 
 # Low Latency playback pipeline 3 on PCM 1 using max 2 channels of s24le.
 # 1000us deadline on core 0 with priority 0
