@@ -16,6 +16,15 @@
 /* Decimation filters */
 #include <sof/audio/coefficients/pdm_decim/pdm_decim_table.h>
 
+/* OUTCONTROLx IPM bit fields style */
+#if DMIC_HW_VERSION == 1 || (DMIC_HW_VERSION == 2 && DMIC_HW_CONTROLLERS <= 2)
+#define DMIC_IPM_VER1
+#elif DMIC_HW_VERSION == 3 || (DMIC_HW_VERSION == 2 && DMIC_HW_CONTROLLERS > 2)
+#define DMIC_IPM_VER2
+#else
+#error Not supported HW version
+#endif
+
 /* Base addresses (in PDM scope) of 2ch PDM controllers and coefficient RAM. */
 static const uint32_t base[4] = {PDM0, PDM1, PDM2, PDM3};
 static const uint32_t coef_base_a[4] = {PDM0_COEFFICIENT_A, PDM1_COEFFICIENT_A,
@@ -478,6 +487,7 @@ static int select_mode(struct dai *dai,
  * HW versions. This helper function returns a suitable IPM bit field
  * value to use.
  */
+#ifdef DMIC_IPM_VER1
 
 static void ipm_helper1(struct dmic_pdata *dmic, int *ipm, int di)
 {
@@ -506,7 +516,9 @@ static void ipm_helper1(struct dmic_pdata *dmic, int *ipm, int di)
 		*ipm = 2;
 }
 
-#if DMIC_HW_VERSION >= 2
+#endif
+
+#ifdef DMIC_IPM_VER2
 
 static inline void ipm_helper2(struct dmic_pdata *dmic, int source[], int *ipm, int di)
 {
@@ -617,7 +629,7 @@ static int configure_registers(struct dai *dai,
 	cic_mute = 1;
 	fir_mute = 1;
 
-#if (DMIC_HW_VERSION == 2 && DMIC_HW_CONTROLLERS > 2) || DMIC_HW_VERSION == 3
+#ifdef DMIC_IPM_VER2
 	int source[OUTCONTROLX_IPM_NUMSOURCES];
 #endif
 
@@ -638,7 +650,7 @@ static int configure_registers(struct dai *dai,
 	of1 = 0;
 #endif
 
-#if DMIC_HW_VERSION == 1 || (DMIC_HW_VERSION == 2 && DMIC_HW_CONTROLLERS <= 2)
+#ifdef DMIC_IPM_VER1
 	if (di == 0) {
 		ipm_helper1(dmic, &ipm, 0);
 		val = OUTCONTROL0_TIE(0) |
@@ -666,7 +678,7 @@ static int configure_registers(struct dai *dai,
 	}
 #endif
 
-#if DMIC_HW_VERSION == 3 || (DMIC_HW_VERSION == 2 && DMIC_HW_CONTROLLERS > 2)
+#ifdef DMIC_IPM_VER2
 	if (di == 0) {
 		ipm_helper2(dmic, source, &ipm, 0);
 		val = OUTCONTROL0_TIE(0) |
